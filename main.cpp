@@ -2,10 +2,50 @@
 #include <Windows.h>
 #include <iostream>
 
-#define WINDOW_SIZE_X 1000.0
-#define WINDOW_SIZE_Y 600.0
+#define WINDOW_SIZE_X 1800.0
+#define WINDOW_SIZE_Y 800.0
 
 using namespace std;
+
+HWND hwnd;
+HMENU hmenu;
+HANDLE hOutput;
+HANDLE hInput;
+HDC cHdc;
+CONSOLE_SCREEN_BUFFER_INFO bufferInfo;
+CONSOLE_CURSOR_INFO cursorInfo;
+
+void drawText(const string text, const int fg, const int bg)
+{
+	SetConsoleTextAttribute(hOutput, fg + bg * 16);
+	cout << text;
+	SetConsoleTextAttribute(hOutput, 15);
+}
+void copyToClipboard(string s)
+{
+	//cast to char*
+	int n = s.size();
+	char* c_str = &s[0];
+
+	const size_t len = s.size() + 1;
+	HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+	memcpy(GlobalLock(hMem), c_str, len);
+	GlobalUnlock(hMem);
+	OpenClipboard(0);
+	EmptyClipboard();
+	SetClipboardData(CF_TEXT, hMem);
+	CloseClipboard();
+}
+string getFromClipboard()
+{
+	OpenClipboard(0);
+	HANDLE hData = GetClipboardData(CF_TEXT);
+	char *p = static_cast<char*>(GlobalLock(hData));
+	GlobalUnlock(hData);
+	CloseClipboard();
+
+	return string(p);
+}
 
 class Operator
 {
@@ -52,6 +92,31 @@ public:
 };
 
 //GUI classes
+class ColorBox
+{
+public:
+	string textStr;
+
+	sf::Vector2f pos, size;
+	sf::Color backgroundCol;
+	sf::RectangleShape background;
+
+	void construct(const sf::Vector2f p, const sf::Vector2f s, const sf::Color bgCol)
+	{
+		pos = p;
+		size = s;
+		backgroundCol = bgCol;
+
+		background.setSize(s);
+		background.setPosition(p);
+		background.setFillColor(bgCol);
+	}
+
+	void draw(sf::RenderWindow &window)
+	{
+		window.draw(background);
+	}
+};
 class TextBox
 {
 public:
@@ -79,14 +144,21 @@ public:
 		text.setString(defText);
 		text.setFillColor(txCol);
 		textCol = txCol;
-
-		text.setCharacterSize(32);
+		text.setCharacterSize(24);
 		text.setPosition(p.x + 3, p.y + (s.y - text.getGlobalBounds().height) / 2.0);
 	}
 	void setText(const string s)
 	{
 		textStr = s;
 		text.setString(textStr);
+		text.setPosition(pos.x + 3, pos.y + (size.y - text.getGlobalBounds().height) / 2.0);
+	}
+
+	bool containsPoint(const sf::Vector2i p)
+	{
+		if (p.x >= pos.x && p.y >= pos.y && p.x <= pos.x + background.getGlobalBounds().width && p.y <= pos.y + background.getGlobalBounds().height)
+			return true;
+		return false;
 	}
 
 	void draw(sf::RenderWindow &window)
@@ -129,13 +201,13 @@ public:
 
 		textCol = txCol;
 
-		text.setCharacterSize(32);
+		text.setCharacterSize(24);
 		text.setPosition(p.x + 3, p.y + (s.y - text.getGlobalBounds().height) / 2.0);
 
 
-		cursor.setSize(sf::Vector2f(2.0, 32.0));
+		cursor.setSize(sf::Vector2f(2.0, 24.0));
 		cursor.setFillColor(sf::Color::White);
-		cursor.setPosition(p.x + 3, p.y + (s.y - 32) / 2.0);
+		cursor.setPosition(p.x + 3, p.y + (s.y - 14) / 2.0);
 	}
 
 	bool containsPoint(const sf::Vector2i p)
@@ -149,14 +221,14 @@ public:
 		if (cursorPos + v >= 0 && cursorPos + v <= textStr.length())
 		{
 			cursorPos += v;
-			cursor.setPosition(pos.x + cursorPos * 18, cursor.getPosition().y);
-			blink = 10;
+			cursor.setPosition(pos.x + cursorPos * 14, cursor.getPosition().y);
+			blink = 5;
 		}
 	}
 	bool modifyString(const char &c)
 	{
-		int a = text.getGlobalBounds().width;
-		if (c == 8 && textStr.length())
+		//int a = text.getGlobalBounds().width;
+		if (c == 8 && cursorPos)
 		{
 			textStr.erase(cursorPos - 1, 1);
 			moveCursor(-1);
@@ -174,17 +246,18 @@ public:
 			text.setFillColor(textCol);
 			text.setStyle(sf::Text::Regular);
 
-			while (text.getGlobalBounds().width > size.x - 20 && text.getCharacterSize() >= 16)
-				text.setCharacterSize(text.getCharacterSize() - 2);
-			//cursor.setPosition(pos.x + 3 + text.getGlobalBounds().width, pos.y + (size.y - 24) / 2.0);
+			//while (text.getGlobalBounds().width > size.x - 20 && text.getCharacterSize() >= 16)
+			//	text.setCharacterSize(text.getCharacterSize() - 2);
 		}
 		else
 		{
 			text.setString(defTextStr);
 			text.setFillColor(sf::Color(backgroundCol.r + 50, backgroundCol.g + 50, backgroundCol.b + 50, backgroundCol.a));
 			text.setStyle(sf::Text::Italic);
-			cursor.setPosition(pos.x + 3, pos.y + (size.y - 32) / 2.0);
+			cursor.setPosition(pos.x + 3, pos.y + (size.y - 14) / 2.0);
 		}
+
+		//cout << a - text.getGlobalBounds().width<<'\n';
 
 		if (c == 13)
 		{
@@ -201,10 +274,10 @@ public:
 
 		if (isSelected)
 		{
-			if (blink < 30)
+			if (blink < 15)
 				window.draw(cursor);
 
-			if (blink < 60)
+			if (blink < 30)
 				++blink;
 			else
 				blink = 0;
@@ -214,21 +287,25 @@ public:
 class Button
 {
 public:
-	bool isAnimated = false;
+	bool isAnimated = false, isSwitch = false;
 	int clicked = 0;
+	bool isOn = true;
 
 	sf::Vector2f pos;
 	sf::Vector2i size;
 	sf::Texture tx;
 	sf::Sprite sp;
 
-	void construct(const sf::Vector2f p, const sf::Vector2i s, const sf::Vector2f scale, const string location, const bool anim)
+	void construct(const sf::Vector2f p, const sf::Vector2i s, const sf::Vector2f scale, const string location, const bool anim, const bool swit)
 	{
 		if (!tx.loadFromFile(location))
-			cout << "Couldn't open texture file: " << location << '\n';
+		{
+			drawText("Couldn't open texture file: ", 4, 0); drawText(location, 8, 0); drawText("\n", 8, 0);
+		}
 		else
 		{
 			isAnimated = anim;
+			isSwitch = swit;
 			pos = p;
 			size = s;
 
@@ -248,11 +325,18 @@ public:
 
 	void onPress()
 	{
-		sp.setTextureRect(sf::IntRect(size.x, 0, size.x, size.y));
+		if (isAnimated || (isSwitch && isOn))
+			sp.setTextureRect(sf::IntRect(size.x, 0, size.x, size.y));
+		else if(!isSwitch)
+			sp.setColor(sf::Color(200, 200, 200, 200));
 	}
 	void onRelease()
 	{
-		sp.setTextureRect(sf::IntRect(0, 0, size.x, size.y));
+		isOn = !isOn;
+		if (isAnimated || (isSwitch && isOn))
+			sp.setTextureRect(sf::IntRect(0, 0, size.x, size.y));
+		else if(!isSwitch)
+			sp.setColor(sf::Color(255, 255, 255, 255));
 	}
 
 	void draw(sf::RenderWindow &window)
@@ -277,7 +361,7 @@ public:
 		size = sf::Vector2f(50.0, 50.0);
 		color = sf::Color(sf::Color::White);
 	}
-	SquareBox(const sf::Vector2f p, const sf::Vector2f s, const sf::Color col, const string txt)
+	SquareBox(const sf::Vector2f p, const sf::Vector2f s, const sf::Color col, const sf::Color outCol, const string txt)
 	{
 		pos = p;
 		size = s;
@@ -287,8 +371,8 @@ public:
 		square.setPosition(pos);
 		square.setFillColor(color);
 		square.setSize(size);
-		square.setOutlineThickness(5.0);
-		square.setOutlineColor(sf::Color(color.r - 50, color.g - 50, color.b, color.a));
+		square.setOutlineThickness(2.0);
+		square.setOutlineColor(outCol);
 
 		font.loadFromFile("dosfont.ttf");
 
@@ -296,8 +380,8 @@ public:
 		text.setString(textStr);
 		text.setFillColor(sf::Color::Black);
 
-		text.setCharacterSize(32);
-		while (text.getGlobalBounds().width > size.x - 20)
+		text.setCharacterSize(24);
+		while (text.getGlobalBounds().width > size.x - 4)
 			text.setCharacterSize(text.getCharacterSize() - 1);
 		text.setPosition(p.x + (s.x - text.getGlobalBounds().width) / 2.0, p.y + 5.0);
 	}
@@ -308,6 +392,13 @@ public:
 		pos = p;
 		square.setPosition(pos);
 		text.setPosition(p.x + (size.x - text.getGlobalBounds().width) / 2.0, p.y + 5.0);
+	}
+
+	bool containsPoint(const sf::Vector2i p)
+	{
+		if (p.x >= pos.x && p.y >= pos.y && p.x <= pos.x + size.x && p.y <= pos.y + size.y)
+			return true;
+		return false;
 	}
 
 	void draw(sf::RenderWindow &window)
@@ -329,7 +420,7 @@ public:
 		const int size = stack.size();
 		for (int i = 0; i < size; ++i)
 		{
-			boxList.push_back(SquareBox(sf::Vector2f(0.0, 0.0), sf::Vector2f(50.0, 50.0), sf::Color(0, stack[i].precedance * 2 + 50, 255, 255), string(1, stack[i].symbol)));
+			boxList.push_back(SquareBox(sf::Vector2f(0.0, 0.0), sf::Vector2f(40.0, 40.0), sf::Color::Cyan, sf::Color(0, 175, 175, 255), string(1, stack[i].symbol)));
 		}
 	}
 	void setStack(const vector<Operand> &stack)
@@ -339,9 +430,9 @@ public:
 		for (int i = 0; i < size; ++i)
 		{
 			if (!stack[i].isTreeHandle)
-				boxList.push_back(SquareBox(sf::Vector2f(0.0, 0.0), sf::Vector2f(50.0, 50.0), sf::Color::Yellow, string(1, stack[i].symbol)));
+				boxList.push_back(SquareBox(sf::Vector2f(0.0, 0.0), sf::Vector2f(40.0, 40.0), sf::Color::Yellow, sf::Color(175, 175, 0, 255), string(1, stack[i].symbol)));
 			else
-				boxList.push_back(SquareBox(sf::Vector2f(0.0, 0.0), sf::Vector2f(50.0, 50.0), sf::Color::Yellow, "@" + to_string(stack[i].handle)));
+				boxList.push_back(SquareBox(sf::Vector2f(0.0, 0.0), sf::Vector2f(40.0, 40.0), sf::Color::Yellow, sf::Color(175, 175, 0, 255), "@" + to_string(stack[i].handle)));
 		}
 	}
 
@@ -349,7 +440,7 @@ public:
 	{
 		const int size = boxList.size();
 		for (int i = 0; i < size; ++i)
-			boxList[i].setPosition(sf::Vector2f(pos.x, pos.y + i * (boxList[i].size.y + boxList[i].square.getOutlineThickness() + 10)));
+			boxList[i].setPosition(sf::Vector2f(pos.x + i * (boxList[i].size.x + boxList[i].square.getOutlineThickness() + 10), pos.y));
 	}
 
 	void draw(sf::RenderWindow &window)
@@ -369,6 +460,7 @@ public:
 	int size = 0;
 	vector<vector<Operator>> operatorArchive;
 	vector<vector<Operand>> operandArchive;
+	GraphicStack gStack;
 
 	void push(const vector<Operator> &stack)
 	{
@@ -380,9 +472,8 @@ public:
 		operandArchive.push_back(stack);
 		++size;
 	}
-	void draw(const sf::Vector2f pos1, const sf::Vector2f pos2, const  int step, sf::RenderWindow &window)
+	void draw(const sf::Vector2f pos1, const sf::Vector2f pos2, const int step, sf::RenderWindow &window)
 	{
-		GraphicStack gStack;
 		gStack.setStack(operatorArchive[step]);
 		gStack.setPosition(pos1);
 		gStack.draw(window);
@@ -402,6 +493,7 @@ class Node
 public:
 	char symbol = 0;
 	int father = -1, leaf[2] = { -1 };
+	bool highlight = false;
 
 	sf::CircleShape circle;
 	sf::Font font;
@@ -418,6 +510,7 @@ public:
 
 		text.setString(std::string(1, s));
 		text.setFont(font);
+		text.setCharacterSize(24);
 		text.setFillColor(sf::Color::Black);
 
 
@@ -427,8 +520,8 @@ public:
 
 		if (leaf[0] != -1)
 		{
-			circle.setFillColor(sf::Color(0, 0, 255, 255));
-			circle.setOutlineColor(sf::Color(0, 0, 175, 255));
+			circle.setFillColor(sf::Color(0, 255, 255, 255));
+			circle.setOutlineColor(sf::Color(0, 175, 175, 255));
 		}
 		else
 		{
@@ -448,8 +541,43 @@ public:
 		circle.setPosition(pos);
 		text.setPosition(pos);
 	}
+	void setHighlight(const bool h)
+	{
+		highlight = h;
+		if (!highlight)
+		{
+			if (leaf[0] != -1)
+			{
+				circle.setFillColor(sf::Color(0, 255, 255, 255));
+				circle.setOutlineColor(sf::Color(0, 175, 175, 255));
+			}
+			else
+			{
+				circle.setFillColor(sf::Color(255, 255, 0, 255));
+				circle.setOutlineColor(sf::Color(175, 175, 0, 255));
+			}
+			text.setFillColor(sf::Color::Black);
+			circle.setOutlineThickness(2.0);
+		}
+		else
+		{
+			if (leaf[0] != -1)
+			{
+				circle.setFillColor(sf::Color(150, 255, 255, 255));
+				circle.setOutlineColor(sf::Color(150, 175, 175, 255));
+			}
+			else
+			{
+				circle.setFillColor(sf::Color(255, 255, 150, 255));
+				circle.setOutlineColor(sf::Color(175, 175, 70, 255));
+			}
+			text.setFillColor(sf::Color(100, 100, 100, 255));
+			circle.setOutlineThickness(3.0);
+		}
+	}
 	void draw(sf::RenderWindow &window)
 	{
+		text.setFont(font); //SFML beeing lazy
 		window.draw(circle);
 		window.draw(text);
 	}
@@ -476,7 +604,7 @@ private:
 			Operand aux2 = operandStack.back();
 			operandStack.pop_back();
 			operandStack.pop_back();
-
+			
 			//creating nodes and linking
 			if (aux1.isTreeHandle)
 			{
@@ -510,7 +638,16 @@ private:
 				}
 			}
 			operandStack.push_back(Operand(currentNode));
-			cout << "Pushed: " << nodes[currentNode].symbol << " into the operand stack\n";
+
+			//printings
+			drawText(" - Popped '", 8, 0);
+			if (aux1.isTreeHandle) drawText("@" + to_string(aux1.handle), 6, 0);
+			else drawText(string(1, aux1.symbol), 6, 0);
+			drawText("' from ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
+			drawText(" - Popped '", 8, 0);
+			if (aux2.isTreeHandle) drawText("@" + to_string(aux2.handle), 6, 0);
+			else drawText(string(1, aux2.symbol), 6, 0);
+			drawText("' from ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 		}
 		else if (op.arity == 1)
 		{
@@ -529,9 +666,16 @@ private:
 				nodes.push_back(Node(aux1.symbol, currentNode, -1, -1));
 			}
 			operandStack.push_back(Operand(currentNode));
-			cout << "Pushed: " << nodes[currentNode].symbol << " into the operand stack\n";
+
+			//printings
+			drawText(" - Popped '", 8, 0);
+			if (aux1.isTreeHandle) drawText("@" + to_string(aux1.handle), 6, 0);
+			else drawText(string(1, aux1.symbol), 6, 0);
+			drawText("' from ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 		}
 
+		drawText(" - Popped '", 8, 0); drawText(string(1, operatorStack.back().symbol), 3, 0); drawText("' from ", 8, 0); drawText("OPERATOR STACK\n", 3, 0);
+		drawText("'", 8, 0); drawText("@" + to_string(currentNode), 6, 0); drawText("' pushed in ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 		operatorStack.pop_back();
 	}
 	void _getSubtreeLeaves(int pos, int &leaves)
@@ -581,7 +725,7 @@ private:
 	}
 	void _recSetPos(int pos, int x, int y)
 	{
-		nodes[pos].setPosition(sf::Vector2f(x * 20.0, y * 20.0));
+		nodes[pos].setPosition(sf::Vector2f(x * 15.0, y * 15.0));
 		if (nodes[pos].leaf[0] != -1)
 		{
 			int depth = 0;
@@ -606,11 +750,36 @@ public:
 		operatorSet.push_back(Operator('-', 1, 2)); //SUB
 		operatorSet.push_back(Operator('*', 2, 2)); //MLT
 		operatorSet.push_back(Operator('/', 2, 2)); //DIV
-		operatorSet.push_back(Operator('-', 3, 1)); //OPS
+		operatorSet.push_back(Operator('-', 4, 1)); //OPS
+		operatorSet.push_back(Operator('^', 3, 2)); //PWR
+
+		operatorSet.push_back(Operator('!', 5, 1)); //NEG
+		operatorSet.push_back(Operator('&', 4, 2)); //AND
+		operatorSet.push_back(Operator('|', 3, 2)); //OR
+		operatorSet.push_back(Operator('$', 3, 2)); //XOR
+		operatorSet.push_back(Operator('>', 2, 2)); //IMP
+		operatorSet.push_back(Operator('=', 1, 2)); //EQU
+
 	}
 	void setOperatorSet(const vector<Operator> opSet)
 	{
 		operatorSet = opSet;
+	}
+	void setHighlight(const bool h)
+	{
+		int size = nodes.size();
+		for (int i = 0; i < size; ++i)
+			nodes[i].setHighlight(h);
+	}
+	void setHighlight(const bool h, const int pos)
+	{
+		nodes[pos].setHighlight(h);
+		if (nodes[pos].leaf[0] != -1)
+		{
+			if (nodes[pos].leaf[1] != -1)
+				setHighlight(h, nodes[pos].leaf[1]);
+			setHighlight(h, nodes[pos].leaf[0]);
+		}
 	}
 
 	void clear()
@@ -647,7 +816,7 @@ public:
 		return -1;
 	}
 
-	bool construct(const string s)
+	int construct(const string s)
 	{
 		//clearings
 		clear();
@@ -665,16 +834,17 @@ public:
 			if (s[i] == '(')
 			{
 				++parenthesisLevel;
+				drawText("'", 8, 0); drawText("(", 7, 0); drawText("' predecence level set to ", 8, 0); drawText(to_string(parenthesisLevel), 7, 0); drawText("\n", 15, 0);
 				continue;
 			}
-			else if (s[i] == ')')
+			if (s[i] == ')')
 			{
 				--parenthesisLevel;
+				drawText("'", 8, 0); drawText(")", 7, 0); drawText("' predecence level set to ", 8, 0); drawText(to_string(parenthesisLevel), 7, 0); drawText("\n", 15, 0);
 				continue;
 			}
 
 			int  j;
-
 			if (isOperator(s[i], 1) != -1 && isOperator(s[i], 2) != -1)
 			{
 				if (i == 0 || isOperator(s[i - 1]) || s[i - 1] == '(')
@@ -691,18 +861,25 @@ public:
 
 			if (j != -1) //operator found
 			{
-				while (operatorStack.size() && operatorStack.back().precedance > operatorSet[j].precedance + parenthesisLevel * nrOperators) //operatorStack.top().precedance > operatorList[0].precedance
+				while (operatorStack.size() && (
+						(operatorSet[j].arity == 2 && operatorStack.back().precedance >= operatorSet[j].precedance + parenthesisLevel * nrOperators) ||
+						(operatorSet[j].arity == 1 && operatorStack.back().precedance > operatorSet[j].precedance + parenthesisLevel * nrOperators)
+											   )) //read both unary and binary in their correct "human-like" order 
 				{
-					cout << "Solving precedence on: " << operatorStack.back().symbol << '\n';
-					_addToTree(operatorStack.back(), operatorStack, operandStack);
-
+					if (operandStack.size() >= operatorSet[j].arity - 1)
+					{
+						drawText("'", 8, 0); drawText(string(1, operatorSet[j].symbol), 3, 0); drawText("' solved precedence issue with: '", 8, 0); drawText(string(1, operatorStack.back().symbol), 3, 0); drawText("'\n", 8, 0);
+						_addToTree(operatorStack.back(), operatorStack, operandStack);
+					}
+					else
+						return 4; //missing operand
 				}
 
 				//after solving precedencies add operator
 				operatorStack.push_back(operatorSet[j]);
 				operatorStack.back().precedance += parenthesisLevel * nrOperators;
 
-				cout << "Pushed: " << operatorSet[j].symbol << " prec: " << operatorStack.back().precedance << " into the operator stack\n";
+				drawText("'", 8, 0); drawText(string(1, operatorSet[j].symbol), 3, 0); drawText("' pushed in ", 8, 0); drawText("OPERATOR STACK\n", 3, 0);
 			}
 			else //operands
 			{
@@ -711,13 +888,13 @@ public:
 				if (j != -1)
 				{
 					operandStack.push_back(operandSet[j]);
-					cout << "Pushed: " << operandSet[j].symbol << " into the operand stack\n";
+					drawText("'", 8, 0); drawText(string(1, operandSet[j].symbol), 6, 0); drawText("' pushed in ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 				}
 				else //add new operand
 				{
 					operandSet.push_back(Operand(s[i], 0));
 					operandStack.push_back(operandSet[operandSet.size() - 1]);
-					cout << "Pushed: " << operandSet[operandSet.size() - 1].symbol << " into the operand stack\n";
+					drawText("'", 8, 0); drawText(string(1, operandSet[operandSet.size() - 1].symbol), 6, 0); drawText("' pushed in ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 				}
 			}
 
@@ -726,32 +903,68 @@ public:
 			archive.push(operandStack);
 		}
 
-		cout << "Leftovers:\n";
 		//solving leftovers
-
 		while (operatorStack.size() && operandStack.size())
 		{
-			_addToTree(operatorStack.back(), operatorStack, operandStack);
-			printStacks(operatorStack, operandStack);
-			archive.push(operatorStack);
-			archive.push(operandStack);
+			if (operandStack.size() >= operatorStack.back().arity)
+			{
+				_addToTree(operatorStack.back(), operatorStack, operandStack);
+				printStacks(operatorStack, operandStack);
+				archive.push(operatorStack);
+				archive.push(operandStack);
+			}
+			else
+				return 4;
 		}
 
+		//errors
 		if (operatorStack.size())
-			cout << "The given string is not an expression: Operator stack not empty\n";
-		else if (operandStack.size() > 1)
-			cout << "The given string is not an expression: Operand stack not empty\n";
-		else if (parenthesisLevel != 0)
-			cout << "The given string is not an expression: Unpaired parenthesis\n";
-		else
-		{
-			cout << "Success!\n";
+			return 1; //Operator stack not empty;
+		if (operandStack.size() > 1)
+			return 2; //Operand stack not empty
+		if (parenthesisLevel != 0)
+			return 3; //Unpaired parenthesis
+
+		if(operandStack.front().isTreeHandle)
 			root = operandStack.front().handle;
+		else //only one character
+		{
+			nodes.push_back(Node(operandStack.front().symbol, -1, -1, -1));
+			root = nodes.size() - 1; //should be 0 always but just to be safe
 		}
 
+		//for display
+		_recSetPos(root, 93, 4);
 		//clearing stacks
 		operandStack.clear();
 		operatorStack.clear();
+		return 0;
+	}
+
+	string getPrefixNotation(const int pos)
+	{
+		if (nodes[pos].leaf[0] != -1)
+		{
+			if (nodes[pos].leaf[1] != -1)
+				return nodes[pos].symbol + getPrefixNotation(nodes[pos].leaf[0]) + getPrefixNotation(nodes[pos].leaf[1]);
+			return nodes[pos].symbol + getPrefixNotation(nodes[pos].leaf[0]);
+		}
+		return string(1, nodes[pos].symbol);	
+	}
+	string getPrefixNotation_o(const int pos)
+	{
+		string str = "";
+		if (nodes[pos].leaf[0] != -1)
+		{
+			if (nodes[pos].leaf[1] != -1)
+				str += nodes[pos].symbol + getPrefixNotation_o(nodes[pos].leaf[0]) + getPrefixNotation_o(nodes[pos].leaf[1]);
+			else
+				str += nodes[pos].symbol + getPrefixNotation_o(nodes[pos].leaf[0]);
+		}
+		else
+			str += string(1, nodes[pos].symbol);
+		cout << nodes[pos].symbol << " : " << str << '\n';
+		return str;
 	}
 
 	void printTreeData()
@@ -845,6 +1058,7 @@ public:
 	}
 	void printStacks(vector<Operator> operatorStack, vector<Operand> operandStack)
 	{
+		/*
 		cout << "Operator Stack: ";
 		for (int i = 0; i < operatorStack.size(); i++)
 			cout << '[' << operatorStack[i].symbol << "] ";
@@ -853,109 +1067,344 @@ public:
 		for (int i = 0; i < operandStack.size(); i++)
 			cout << '[' << operandStack[i].symbol << "] ";
 		cout << '\n';
+		*/
+	}
+
+	void move(const sf::Vector2f pos)
+	{
+		const int size = nodes.size();
+		for (int i = 0; i < size; i++)
+			nodes[i].setPosition(sf::Vector2f(nodes[i].circle.getPosition().x + pos.x, nodes[i].circle.getPosition().y + pos.y));
+	}
+	void draw(sf::RenderWindow &window)
+	{
+		sf::Vertex line[2];
+		int size = nodes.size();
+		for (int i = 0; i < size; i++)
+		{
+			if (nodes[i].leaf[0] != -1)
+			{
+				line[0].position = nodes[i].circle.getPosition();
+				line[1].position = nodes[nodes[i].leaf[0]].circle.getPosition();
+				if (nodes[i].highlight && nodes[nodes[i].leaf[0]].highlight)
+				{
+					line[0].color = sf::Color(255, 255, 255, 255);
+					line[1].color = sf::Color(255, 255, 255, 255);
+				}
+				else
+				{
+					line[0].color = sf::Color(155, 155, 155, 255);
+					line[1].color = sf::Color(155, 155, 155, 255);
+				}
+				window.draw(line, 2, sf::Lines);
+			}
+			if (nodes[i].leaf[1] != -1)
+			{
+				line[0].position = nodes[i].circle.getPosition();
+				line[1].position = nodes[nodes[i].leaf[1]].circle.getPosition();
+				if (nodes[i].highlight && nodes[nodes[i].leaf[0]].highlight)
+				{
+					line[0].color = sf::Color(255, 255, 255, 255);
+					line[1].color = sf::Color(255, 255, 255, 255);
+				}
+				else
+				{
+					line[0].color = sf::Color(155, 155, 155, 255);
+					line[1].color = sf::Color(155, 155, 155, 255);
+				}
+				window.draw(line, 2, sf::Lines);
+			}
+		}
+		for (int i = 0; i < size; i++)
+		{
+			//check if inside tree window
+			if(nodes[i].circle.getPosition().x - nodes[i].circle.getRadius() < WINDOW_SIZE_X && nodes[i].circle.getPosition().x + nodes[i].circle.getRadius() > WINDOW_SIZE_X - WINDOW_SIZE_Y && nodes[i].circle.getPosition().y - nodes[i].circle.getRadius() < WINDOW_SIZE_Y && nodes[i].circle.getPosition().y + nodes[i].circle.getRadius() > 0)
+				nodes[i].draw(window);
+		}
 	}
 };
 
+void _setup(InputBox inBox[], Button button[], TextBox txBox[], ColorBox clBox[])
+{
+	hwnd = GetConsoleWindow();
+	hmenu = GetSystemMenu(hwnd, FALSE);
+	hOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+	hInput = GetStdHandle(STD_INPUT_HANDLE);
+	cHdc = GetDC(hwnd);
+	bufferInfo;
+	GetConsoleScreenBufferInfo(hOutput, &bufferInfo);
+	GetConsoleCursorInfo(hOutput, &cursorInfo);
+
+	//remove exit button from console
+	EnableMenuItem(hmenu, SC_CLOSE, MF_GRAYED);
+
+	//Setting a font
+	CONSOLE_FONT_INFOEX cfi;
+	cfi.cbSize = sizeof(cfi);
+	cfi.nFont = 0;
+	cfi.dwFontSize.X = 10;                   // Width of each character in the font
+	cfi.dwFontSize.Y = 14;                  // Height
+	cfi.FontFamily = FF_DONTCARE;
+	cfi.FontWeight = FW_NORMAL;
+	wcscpy_s(cfi.FaceName, L"Lucida Console"); // Choose your font
+	SetCurrentConsoleFontEx(hOutput, FALSE, &cfi);
+
+	
+	cursorInfo.bVisible = false;
+	SetConsoleCursorInfo(hOutput, &cursorInfo);
+
+	SetConsoleTitle(TEXT("FLEE Log Console"));
+
+	//UI setup
+	inBox[0].construct(sf::Vector2f(20.0, 40.0), sf::Vector2f(960.0, 50.0), sf::Color(100, 100, 100, 255), sf::Color(240, 240, 240, 255), "Type Here...");
+
+	button[0].construct(sf::Vector2f(160.0, 100.0), sf::Vector2i(20, 17), sf::Vector2f(2.0, 2.0), "1step.png", true, false);
+	button[1].construct(sf::Vector2f(110.0, 100.0), sf::Vector2i(20, 17), sf::Vector2f(2.0, 2.0), "backstep.png", true, false);
+	button[2].construct(sf::Vector2f(20.0, 100.0), sf::Vector2i(30, 17), sf::Vector2f(2.0, 2.0), "fullstep.png", true, false);
+	button[3].construct(sf::Vector2f(940.0, 5.0), sf::Vector2i(19, 15), sf::Vector2f(2.0, 2.0), "consolebutton.png", false, true);
+
+	txBox[0].construct(sf::Vector2f(20.0, 20.0), sf::Vector2f(0.0, 0.0), sf::Color(0, 0, 0, 0), sf::Color::Yellow, "Input:");
+	txBox[1].construct(sf::Vector2f(20.0, 160.0), sf::Vector2f(0.0, 0.0), sf::Color(0, 0, 0, 0), sf::Color::Yellow, "Output:");
+	txBox[2].construct(sf::Vector2f(20.0, 180.0), sf::Vector2f(960.0, 50.0), sf::Color(75, 75, 75, 255), sf::Color(0, 255, 255, 255), "");
+	txBox[3].construct(sf::Vector2f(20.0, 280.0), sf::Vector2f(0.0, 0.0), sf::Color(0, 0, 0, 0), sf::Color::Yellow, "Operator Stack:");
+	txBox[4].construct(sf::Vector2f(20.0, 380.0), sf::Vector2f(0.0, 0.0), sf::Color(0, 0, 0, 0), sf::Color::Yellow, "Operand Stack:");
+	txBox[5].construct(sf::Vector2f(0.0, 765.0), sf::Vector2f(0.0, 0.0), sf::Color(0, 0, 0, 0), sf::Color(200, 200, 0, 100), "FLEE v1.0 by Andrei Filip\nGUI built using SFML 2.5");
+
+	clBox[0].construct(sf::Vector2f(20.0, 300.0), sf::Vector2f(960.0, 60.0), sf::Color(0, 0, 0, 255));
+	clBox[1].construct(sf::Vector2f(20.0, 400.0), sf::Vector2f(960.0, 60.0), sf::Color(0, 0, 0, 255));
+
+	drawText("FLEE v1.0 by Andrei Filip\n\n", 1, 8);
+}
+
 int main()
 {
-	sf::RenderWindow window(sf::VideoMode(WINDOW_SIZE_X, WINDOW_SIZE_Y), "FLAT");
-	window.setFramerateLimit(60);
+	//ShowWindow(::GetConsoleWindow(), SW_HIDE);
 
-	sf::RectangleShape mainBackground(sf::Vector2f(WINDOW_SIZE_X, WINDOW_SIZE_Y));
+	sf::RenderWindow window(sf::VideoMode(WINDOW_SIZE_X, WINDOW_SIZE_Y), "FLEE 1.0", sf::Style::Close);
+	window.setFramerateLimit(30);
+	sf::Image icon;
+	icon.loadFromFile("graph.png"); // File/Image/Pixel
+	window.setIcon(icon.getSize().x, icon.getSize().y, icon.getPixelsPtr());
+
+	sf::RectangleShape mainBackground(sf::Vector2f(WINDOW_SIZE_X - WINDOW_SIZE_Y, WINDOW_SIZE_Y));
 	mainBackground.setFillColor(sf::Color(0, 50, 20, 255));
 
 	sf::Mouse mouse;
-	
-	int selectedTB = -1, nrTB = 2;
-	InputBox textBox[2];
-	for (int i = 0; i < nrTB; i++)
-		textBox[i].construct(sf::Vector2f(20.0, i*55), sf::Vector2f(200.0, 50.0), sf::Color(100, 100, 100, 255), sf::Color(200, 200, 200, 255), "Type Here");
 
-	Button b; b.construct(sf::Vector2f(320.0, 55.0), sf::Vector2i(22, 20), sf::Vector2f(1.0, 1.0), "iconx.png", true);
-	//SquareBox sb(sf::Vector2f(200.0, 200.0), sf::Vector2f(50.0, 50.0), sf::Color(255, 120, 0, 255), "@1");
+	InputBox inBox[1]; int nrIB = 1, selectedIB = -1;
+	Button button[4]; int nrBut = 4;
+	TextBox txBox[6]; int nrTB = 6;
+	ColorBox clBox[2]; int nrCB = 2;
+	_setup(inBox, button, txBox, clBox);
 	
 	Tree tree; int archiveViewStep = 0;
-	bool st_STEPVIEW = false;
+	bool st_STEPVIEW = false, st_LOGVIEW = false;
 
 	while (window.isOpen())
 	{
+		//cout << mouse.getPosition(window).x << ' ' << mouse.getPosition(window).y << '\n';
 		sf::Event event;
 		while (window.pollEvent(event))
 		{
 			if (event.type == sf::Event::MouseButtonReleased)
 			{
-				if (b.containsPoint(mouse.getPosition(window)))
+				sf::Vector2i mPos = mouse.getPosition(window);
+				if (button[0].containsPoint(mPos))
 				{
-					b.onRelease();
-					if (textBox[0].textStr.size())
-					{
-						tree.construct(textBox[0].textStr);
-						st_STEPVIEW = true;
-						archiveViewStep = 0;
-					}
-				}
-			}
-			if (event.type == sf::Event::MouseButtonPressed)
-			{
-				bool clickedTB = false;
-				for (int i = 0; i < nrTB; i++)
-					if (textBox[i].containsPoint(mouse.getPosition(window)))
-					{
-						if (selectedTB != -1)
-							textBox[selectedTB].isSelected = false;
-						selectedTB = i;
-						textBox[selectedTB].isSelected = true;
-						clickedTB = true;
-						break;
-					}
-				if (!clickedTB && selectedTB != -1)
-				{
-					textBox[selectedTB].isSelected = false;
-					selectedTB = -1;
-				}
-
-				if (b.containsPoint(mouse.getPosition(window)))
-					b.onPress();
-			}
-			else if (event.type == sf::Event::KeyPressed)
-			{
-				if (event.key.code == sf::Keyboard::Right)
-				{
-					if (selectedTB != -1)
-						textBox[selectedTB].moveCursor(1);
-				}
-				else if (event.key.code == sf::Keyboard::Left)
-				{
-					if (selectedTB != -1)
-						textBox[selectedTB].moveCursor(-1);
-				}
-				else if (st_STEPVIEW && event.key.code == sf::Keyboard::K)
-				{
+					button[0].onRelease();
 					++archiveViewStep;
 					if (archiveViewStep >= tree.archive.size / 2) //reached end
 					{
 						archiveViewStep = 0;
 					}
 				}
+				else if (button[1].containsPoint(mPos))
+				{
+					button[1].onRelease();
+					--archiveViewStep;
+					if (archiveViewStep < 0) //reached end
+					{
+						archiveViewStep = tree.archive.size / 2 - 1;
+					}
+				}
+				else if (button[2].containsPoint(mPos)) //construct button
+				{
+					button[2].onRelease();
+					if (inBox[0].textStr.size())
+					{
+						drawText("For: ", 7, 0); drawText(inBox[0].textStr + "\n", 15, 0);
+						//remove spaces
+						string aux = inBox[0].textStr; int size = aux.size();
+						for (int i = 0; i < size; ++i)
+							if (aux[i] == ' ')
+								aux.erase(i, 1);
+						int err = tree.construct(aux);
+						if (!err)
+						{
+							drawText("Success!\n", 10, 0); drawText("Prefix notation: ", 7, 0); drawText(tree.getPrefixNotation(tree.root), 10, 0); drawText("\n", 8, 0);
+							txBox[2].setText(tree.getPrefixNotation(tree.root));
+							txBox[2].text.setFillColor(txBox[2].textCol);
+							st_STEPVIEW = true;
+							archiveViewStep = 0;
+						}
+						else if (err == 1)
+						{
+							drawText("Error: ",7, 0); drawText("Operator stack is not empty\n", 4, 0);
+							txBox[2].setText("Operator stack not empty");
+							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+						}
+						else if (err == 2)
+						{
+							drawText("Error: ", 7, 0); drawText("Operand stack is not empty\n", 4, 0);
+							txBox[2].setText("Operand stack not empty");
+							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+						}
+						else if (err == 3)
+						{
+							drawText("Error: ", 7, 0); drawText("Unpaired parenthesis found\n", 4, 0);
+							txBox[2].setText("Unpaired parenthesis");
+							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+						}
+						else if (err == 4)
+						{
+							drawText("Error: ", 7, 0); drawText("Missing operand\n", 4, 0);
+							txBox[2].setText("Missing operand");
+							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+						}
+						else
+						{
+							drawText("Error: ", 7, 0); drawText("Unknown error\n", 4, 0);
+							txBox[2].setText("Unknown error");
+							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+						}
+						drawText("--------------------------------\n\n", 7, 0);
+					}
+				}
+				else if (button[3].containsPoint(mPos))
+				{
+					button[3].onRelease();
+					if (st_LOGVIEW)
+						ShowWindow(::GetConsoleWindow(), SW_HIDE);
+					else
+					{
+						ShowWindow(::GetConsoleWindow(), SW_SHOW);
+						SetConsoleCursorInfo(hOutput, &cursorInfo);
+					}
+					st_LOGVIEW = !st_LOGVIEW;
+				}
+				else
+				{
+					for (int i = 0; i < nrBut; ++i) //realease stuck buttons
+						if (!button[i].isSwitch)
+							button[i].onRelease();
+					tree.setHighlight(false);
+				}
+
+				int size = tree.archive.gStack.boxList.size();
+				for (int i = 0; i < size; ++i)
+					if (tree.archive.gStack.boxList[i].containsPoint(mPos) && tree.archive.gStack.boxList[i].textStr[0] == '@')
+					{
+						string aux = tree.archive.gStack.boxList[i].textStr; aux.erase(0, 1);
+						tree.setHighlight(true, stoi(aux));
+					}
+			}
+			if (event.type == sf::Event::MouseButtonPressed)
+			{
+				sf::Vector2i mPos = mouse.getPosition(window);
+				bool clickedTB = false;
+				for (int i = 0; i < nrIB; i++)
+					if (inBox[i].containsPoint(mPos))
+					{
+						if (selectedIB != -1)
+							inBox[selectedIB].isSelected = false;
+						selectedIB = i;
+						inBox[selectedIB].isSelected = true;
+						clickedTB = true;
+						inBox[i].blink = 5;
+						break;
+					}
+				if (!clickedTB && selectedIB != -1)
+				{
+					inBox[selectedIB].isSelected = false;
+					selectedIB = -1;
+				}
+
+				for (int i = 0; i < nrBut; ++i)
+					if (button[i].containsPoint(mPos))
+					{
+						button[i].onPress();
+						break;
+					}
+			}
+			else if (event.type == sf::Event::KeyPressed)
+			{
+				if (event.key.code == sf::Keyboard::Right)
+				{
+					if (selectedIB != -1)
+						inBox[selectedIB].moveCursor(1);
+					else
+						tree.move(sf::Vector2f(-15.0, 0.0));
+				}
+				else if (event.key.code == sf::Keyboard::Left)
+				{
+					if (selectedIB != -1)
+						inBox[selectedIB].moveCursor(-1);
+					else
+						tree.move(sf::Vector2f(15.0, 0.0));
+				}
+				else if (event.key.code == sf::Keyboard::Up)
+				{
+					tree.move(sf::Vector2f(0.0, 15.0));
+				}
+				else if (event.key.code == sf::Keyboard::Down)
+				{
+					tree.move(sf::Vector2f(0.0, -15.0));
+				}
+				else if (event.key.code == sf::Keyboard::C && sf::Keyboard::isKeyPressed(sf::Keyboard::LControl))
+				{
+					sf::Vector2i mPos = mouse.getPosition(window);
+					if (selectedIB != -1 && inBox[selectedIB].textStr.size())
+						copyToClipboard(inBox[selectedIB].textStr);
+					else if (txBox[2].textStr.size() && txBox[2].containsPoint(mPos))
+						copyToClipboard(txBox[2].textStr);
+				}
+				else if (event.key.code == sf::Keyboard::V && sf::Keyboard::isKeyPressed(sf::Keyboard::LControl))
+				{
+					if (selectedIB != -1)
+					{
+						inBox[selectedIB].textStr = getFromClipboard();
+						inBox[selectedIB].moveCursor(inBox[selectedIB].textStr.size() - inBox[selectedIB].cursorPos);
+					}
+				}
 			}
 			else if (event.type == sf::Event::TextEntered)
 			{
-				if (selectedTB != -1)
+				if (selectedIB != -1)
 				{
-					if (textBox[selectedTB].modifyString(event.text.unicode)) //enter
-						selectedTB = -1;
+					if (inBox[selectedIB].modifyString(event.text.unicode)) //enter
+						selectedIB = -1;
 				}
 			}
 			else if (event.type == sf::Event::Closed)
 				window.close();
 		}
 		window.clear();
-		window.draw(mainBackground);
-		for (int i = 0; i < nrTB; i++)
-			textBox[i].draw(window);
-		b.draw(window);
 		if (st_STEPVIEW)
-			tree.archive.draw(sf::Vector2f(200.0, 200.0), sf::Vector2f(300.0, 200.0), archiveViewStep, window);
+			tree.draw(window);
+		window.draw(mainBackground);
+		for (int i = 0; i < nrIB; i++)
+			inBox[i].draw(window);
+		for (int i = 0; i < nrBut; i++)
+			button[i].draw(window);
+		for (int i = 0; i < nrTB; i++)
+			txBox[i].draw(window);
+		for (int i = 0; i < nrCB; i++)
+			clBox[i].draw(window);
+
+		if (st_STEPVIEW)
+		{
+			tree.archive.draw(sf::Vector2f(30.0, 310.0), sf::Vector2f(30.0, 410.0), archiveViewStep, window);
+		}
 		window.display();
 	}
 

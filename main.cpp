@@ -827,7 +827,7 @@ public:
 		vector<Operator> operatorStack;
 		vector<Operand> operandStack;
 		int parenthesisLevel = 0, nrOperators = operatorSet.size();
-
+		bool secondOperand = false;
 		int stringSize = s.size();
 		for (int i = 0; i < stringSize; ++i)
 		{//search known operators
@@ -879,10 +879,14 @@ public:
 				operatorStack.push_back(operatorSet[j]);
 				operatorStack.back().precedance += parenthesisLevel * nrOperators;
 
+				secondOperand = false;
+
 				drawText("'", 8, 0); drawText(string(1, operatorSet[j].symbol), 3, 0); drawText("' pushed in ", 8, 0); drawText("OPERATOR STACK\n", 3, 0);
 			}
 			else //operands
 			{
+				if (secondOperand)
+					return 5; //2 operands in a row
 				//search known operands
 				int j = isOperand(s[i]);
 				if (j != -1)
@@ -896,6 +900,7 @@ public:
 					operandStack.push_back(operandSet[operandSet.size() - 1]);
 					drawText("'", 8, 0); drawText(string(1, operandSet[operandSet.size() - 1].symbol), 6, 0); drawText("' pushed in ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 				}
+				secondOperand = true;
 			}
 
 			printStacks(operatorStack, operandStack);
@@ -1010,7 +1015,32 @@ public:
 				}
 			if (!ok)
 				break;
-			cout << treeString[i] << '\n';
+
+			string aux = "";
+			for (int j = 0; j < 255; j++)
+			{
+				if (treeString[i][j] == ' ')
+					aux += " ";
+				else if(treeString[i][j] == '/' || treeString[i][j] == '\\')
+				{
+					aux += treeString[i][j];
+					drawText(aux, 8, 0);
+					aux = "";
+				}
+				else if(isOperator(treeString[i][j]))
+				{
+					aux += treeString[i][j];
+					drawText(aux, 3, 0);
+					aux = "";
+				}
+				else
+				{
+					aux += treeString[i][j];
+					drawText(aux, 6, 0);
+					aux = "";
+				}
+			}
+			cout << '\n';
 		}
 		cout << '\n';
 	}
@@ -1052,7 +1082,32 @@ public:
 				}
 			if (!ok)
 				break;
-			cout << treeString[i] << '\n';
+
+			string aux = "";
+			for (int j = 0; j < 255; j++)
+			{
+				if (treeString[i][j] == ' ')
+					aux += " ";
+				else if (treeString[i][j] == '/' || treeString[i][j] == '\\')
+				{
+					aux += treeString[i][j];
+					drawText(aux, 8, 0);
+					aux = "";
+				}
+				else if (isOperator(treeString[i][j]))
+				{
+					aux += treeString[i][j];
+					drawText(aux, 3, 0);
+					aux = "";
+				}
+				else
+				{
+					aux += treeString[i][j];
+					drawText(aux, 6, 0);
+					aux = "";
+				}
+			}
+			cout << '\n';
 		}
 		cout << '\n';
 	}
@@ -1143,10 +1198,10 @@ void _setup(InputBox inBox[], Button button[], TextBox txBox[], ColorBox clBox[]
 	cfi.cbSize = sizeof(cfi);
 	cfi.nFont = 0;
 	cfi.dwFontSize.X = 10;                   // Width of each character in the font
-	cfi.dwFontSize.Y = 14;                  // Height
+	cfi.dwFontSize.Y = 16;                  // Height
 	cfi.FontFamily = FF_DONTCARE;
 	cfi.FontWeight = FW_NORMAL;
-	wcscpy_s(cfi.FaceName, L"Lucida Console"); // Choose your font
+	wcscpy_s(cfi.FaceName, L"Consolas"); // Choose your font
 	SetCurrentConsoleFontEx(hOutput, FALSE, &cfi);
 
 	
@@ -1173,12 +1228,12 @@ void _setup(InputBox inBox[], Button button[], TextBox txBox[], ColorBox clBox[]
 	clBox[0].construct(sf::Vector2f(20.0, 300.0), sf::Vector2f(960.0, 60.0), sf::Color(0, 0, 0, 255));
 	clBox[1].construct(sf::Vector2f(20.0, 400.0), sf::Vector2f(960.0, 60.0), sf::Color(0, 0, 0, 255));
 
-	drawText("FLEE v1.0 by Andrei Filip\n\n", 1, 8);
+	drawText("FLEE v1.0\n\n", 8, 0);
 }
 
 int main()
 {
-	//ShowWindow(::GetConsoleWindow(), SW_HIDE);
+	ShowWindow(::GetConsoleWindow(), SW_HIDE);
 
 	sf::RenderWindow window(sf::VideoMode(WINDOW_SIZE_X, WINDOW_SIZE_Y), "FLEE 1.0", sf::Style::Close);
 	window.setFramerateLimit(30);
@@ -1242,6 +1297,7 @@ int main()
 						if (!err)
 						{
 							drawText("Success!\n", 10, 0); drawText("Prefix notation: ", 7, 0); drawText(tree.getPrefixNotation(tree.root), 10, 0); drawText("\n", 8, 0);
+							tree.printTree();
 							txBox[2].setText(tree.getPrefixNotation(tree.root));
 							txBox[2].text.setFillColor(txBox[2].textCol);
 							st_STEPVIEW = true;
@@ -1251,25 +1307,31 @@ int main()
 						{
 							drawText("Error: ",7, 0); drawText("Operator stack is not empty\n", 4, 0);
 							txBox[2].setText("Operator stack not empty");
-							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+							txBox[2].text.setFillColor(sf::Color(170, 0, 0, 255));
 						}
 						else if (err == 2)
 						{
 							drawText("Error: ", 7, 0); drawText("Operand stack is not empty\n", 4, 0);
 							txBox[2].setText("Operand stack not empty");
-							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+							txBox[2].text.setFillColor(sf::Color(170, 0, 0, 255));
 						}
 						else if (err == 3)
 						{
 							drawText("Error: ", 7, 0); drawText("Unpaired parenthesis found\n", 4, 0);
 							txBox[2].setText("Unpaired parenthesis");
-							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+							txBox[2].text.setFillColor(sf::Color(170, 0, 0, 255));
 						}
 						else if (err == 4)
 						{
 							drawText("Error: ", 7, 0); drawText("Missing operand\n", 4, 0);
 							txBox[2].setText("Missing operand");
-							txBox[2].text.setFillColor(sf::Color(255, 50, 0, 255));
+							txBox[2].text.setFillColor(sf::Color(170, 0, 0, 255));
+						}
+						else if (err == 5)
+						{
+							drawText("Error: ", 7, 0); drawText("Wrong syntax\n", 4, 0);
+							txBox[2].setText("Wrong syntax");
+							txBox[2].text.setFillColor(sf::Color(170, 0, 0, 255));
 						}
 						else
 						{

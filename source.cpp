@@ -640,11 +640,11 @@ private:
 			operandStack.push_back(Operand(currentNode));
 
 			//printings
-			drawText(" - Popped '", 8, 0);
+			drawText("Popped '", 8, 0);
 			if (aux1.isTreeHandle) drawText("@" + to_string(aux1.handle), 6, 0);
 			else drawText(string(1, aux1.symbol), 6, 0);
 			drawText("' from ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
-			drawText(" - Popped '", 8, 0);
+			drawText("Popped '", 8, 0);
 			if (aux2.isTreeHandle) drawText("@" + to_string(aux2.handle), 6, 0);
 			else drawText(string(1, aux2.symbol), 6, 0);
 			drawText("' from ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
@@ -668,13 +668,13 @@ private:
 			operandStack.push_back(Operand(currentNode));
 
 			//printings
-			drawText(" - Popped '", 8, 0);
+			drawText("Popped '", 8, 0);
 			if (aux1.isTreeHandle) drawText("@" + to_string(aux1.handle), 6, 0);
 			else drawText(string(1, aux1.symbol), 6, 0);
 			drawText("' from ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 		}
 
-		drawText(" - Popped '", 8, 0); drawText(string(1, operatorStack.back().symbol), 3, 0); drawText("' from ", 8, 0); drawText("OPERATOR STACK\n", 3, 0);
+		drawText("Popped '", 8, 0); drawText(string(1, operatorStack.back().symbol), 3, 0); drawText("' from ", 8, 0); drawText("OPERATOR STACK\n", 3, 0);
 		drawText("'", 8, 0); drawText("@" + to_string(currentNode), 6, 0); drawText("' pushed in ", 8, 0); drawText("OPERAND STACK\n", 6, 0);
 		operatorStack.pop_back();
 	}
@@ -685,6 +685,8 @@ private:
 			_getSubtreeLeaves(nodes[pos].leaf[0], leaves);
 			if (nodes[pos].leaf[1] != -1)
 				_getSubtreeLeaves(nodes[pos].leaf[1], leaves);
+			else
+				leaves++; //trick for correct printing complex trees
 		}
 		else
 		{
@@ -752,13 +754,17 @@ public:
 		operatorSet.push_back(Operator('/', 2, 2)); //DIV
 		operatorSet.push_back(Operator('-', 4, 1)); //OPS
 		operatorSet.push_back(Operator('^', 3, 2)); //PWR
+		operatorSet.push_back(Operator('%', 3, 2)); //MOD
 
 		operatorSet.push_back(Operator('!', 5, 1)); //NEG
 		operatorSet.push_back(Operator('&', 4, 2)); //AND
 		operatorSet.push_back(Operator('|', 3, 2)); //OR
 		operatorSet.push_back(Operator('$', 3, 2)); //XOR
-		operatorSet.push_back(Operator('>', 2, 2)); //IMP
+		operatorSet.push_back(Operator('~', 2, 2)); //IMP
 		operatorSet.push_back(Operator('=', 1, 2)); //EQU
+
+		operatorSet.push_back(Operator('>', 6, 2)); //GTR
+		operatorSet.push_back(Operator('<', 6, 2)); //LSS
 
 	}
 	void setOperatorSet(const vector<Operator> opSet)
@@ -970,6 +976,55 @@ public:
 			str += string(1, nodes[pos].symbol);
 		cout << nodes[pos].symbol << " : " << str << '\n';
 		return str;
+	}
+	int getValue(const int pos)
+	{
+		if (nodes[pos].symbol >= '0' && nodes[pos].symbol <= '9')
+			return nodes[pos].symbol - '0';
+		else if (nodes[pos].symbol == '&')
+			return getValue(nodes[pos].leaf[0]) & getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '|')
+			return getValue(nodes[pos].leaf[0]) | getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '!')
+			return ~getValue(nodes[pos].leaf[0]);
+		else if (nodes[pos].symbol == '$')
+			return getValue(nodes[pos].leaf[0]) ^ getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '~')
+		{
+			int a = getValue(nodes[pos].leaf[0]), b = getValue(nodes[pos].leaf[1]);
+			if (a == 0 || a == b)
+				return 1;
+			return 0;
+		}
+		else if (nodes[pos].symbol == '=')
+		{
+			if (getValue(nodes[pos].leaf[0]) == getValue(nodes[pos].leaf[1]))
+				return 1;
+			return 0;
+		}
+		else if (nodes[pos].symbol == '+')
+			return getValue(nodes[pos].leaf[0]) + getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '*')
+			return getValue(nodes[pos].leaf[0]) * getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '/')
+			return getValue(nodes[pos].leaf[0]) / getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '^')
+			return pow(getValue(nodes[pos].leaf[0]), getValue(nodes[pos].leaf[1]));
+		else if (nodes[pos].symbol == '%')
+			return getValue(nodes[pos].leaf[0]) % getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '-')
+		{
+			if (nodes[pos].leaf[1] != -1)
+				return getValue(nodes[pos].leaf[0]) - getValue(nodes[pos].leaf[1]);
+			else
+				return -getValue(nodes[pos].leaf[0]);
+		}
+		else if (nodes[pos].symbol == '>')
+			return getValue(nodes[pos].leaf[0]) > getValue(nodes[pos].leaf[1]);
+		else if (nodes[pos].symbol == '<')
+			return getValue(nodes[pos].leaf[0]) < getValue(nodes[pos].leaf[1]);
+		else
+			return 0;
 	}
 
 	void printTreeData()
@@ -1238,7 +1293,7 @@ int main()
 	sf::RenderWindow window(sf::VideoMode(WINDOW_SIZE_X, WINDOW_SIZE_Y), "FLEE 1.0", sf::Style::Close);
 	window.setFramerateLimit(30);
 	sf::Image icon;
-	icon.loadFromFile("graph.png"); // File/Image/Pixel
+	icon.loadFromFile("graph.png");
 	window.setIcon(icon.getSize().x, icon.getSize().y, icon.getPixelsPtr());
 
 	sf::RectangleShape mainBackground(sf::Vector2f(WINDOW_SIZE_X - WINDOW_SIZE_Y, WINDOW_SIZE_Y));
@@ -1289,19 +1344,30 @@ int main()
 					{
 						drawText("For: ", 7, 0); drawText(inBox[0].textStr + "\n", 15, 0);
 						//remove spaces
-						string aux = inBox[0].textStr; int size = aux.size();
+						string aux = inBox[0].textStr; int size = aux.size(); bool isComputable = true;
 						for (int i = 0; i < size; ++i)
+						{
 							if (aux[i] == ' ')
 								aux.erase(i, 1);
+							else if (isComputable && !(aux[i] >= '0' && aux[i] <= '9') && !tree.isOperator(aux[i])) //find if computable
+								isComputable = false;
+						}
 						int err = tree.construct(aux);
 						if (!err)
 						{
 							drawText("Success!\n", 10, 0); drawText("Prefix notation: ", 7, 0); drawText(tree.getPrefixNotation(tree.root), 10, 0); drawText("\n", 8, 0);
+							drawText("Value: ", 7, 0);
+							if (isComputable) drawText(to_string(tree.getValue(tree.root)), 10, 0);
+							else drawText("?", 4, 0);
+							drawText("\n", 15, 0);
+
 							tree.printTree();
 							txBox[2].setText(tree.getPrefixNotation(tree.root));
 							txBox[2].text.setFillColor(txBox[2].textCol);
 							st_STEPVIEW = true;
 							archiveViewStep = 0;
+
+							//compute
 						}
 						else if (err == 1)
 						{
